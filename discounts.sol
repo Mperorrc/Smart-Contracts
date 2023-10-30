@@ -16,24 +16,26 @@ contract ProductMarket {
         uint256 productId;
     }
 
-    address constant public companyABC = 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db;
+    address constant public companyABC = 0xc88050a842054ed74862F5bbEF0a247ac031C057;
 
     mapping(uint256 => Product) products;
-    mapping(address => Purchase[]) clientPurchases;
     mapping(address => uint256) clientTokens;
 
     uint256 productCount;
 
     event EtherTransferred(address indexed from, address indexed to, uint256 amount);
     event LogMessage(uint256 message);
+    event Received(address sender, uint256 amount);
+    event SentToCompanyABC(uint256 amount);
+    event Refunded(address receiver, uint256 amount);
 
     constructor() {
         productCount = 0;
-        addProduct("Product 1", 100);
-        addProduct("Product 2", 150);
-        addProduct("Product 3", 200);
-        addProduct("Product 4", 120);
-        addProduct("Product 5", 180);
+        addProduct("Product 1", 0.01 ether);
+        addProduct("Product 2", 0.015 ether);
+        addProduct("Product 3", 0.02 ether);
+        addProduct("Product 4", 0.012 ether);
+        addProduct("Product 5", 0.018 ether);
     }
 
     function addProduct(string memory _name, uint256 _price) private {
@@ -42,34 +44,39 @@ contract ProductMarket {
     }
 
     function buyProduct(uint256 _productId) public returns(uint256) {
-        require(_productId > 0 && _productId <= productCount, "Invalid product ID");
+        require(_productId >= 0 && _productId <= productCount, "Invalid product ID");
         require(msg.sender!=companyABC,"The Company account is not meant to buy products.");
         uint256 tokenCount=0;
         uint256 discountedPrice = getDiscount(products[_productId].price,tokenCount);
-        emit LogMessage(discountedPrice*(10**16));
-        // uint256 accBalance = getBalance();
-        // emit LogMessage(accBalance);
-        // require(accBalance >= discountedPrice, "Insufficient funds");
-        // bool success = _sendEther(discountedPrice*(10**16));
-        // emit LogMessage(discountedPrice);
+        
+        emit LogMessage(discountedPrice);
+        uint256 balance = getBalance();
+        if(discountedPrice<=balance){
+            uint256 excessAmount = balance - discountedPrice;
+            // Transfer the excess amount back to the sender
+            if (excessAmount > 0) {
+                payable(msg.sender).transfer(excessAmount);
+                emit Refunded(msg.sender, excessAmount);
+            }
+            // Transfer the accepted amount to COMPANYABC
+            payable(companyABC).transfer(discountedPrice);
+            emit SentToCompanyABC(discountedPrice);
+        }
+        else{
+            payable(msg.sender).transfer(balance);
+            emit Refunded(msg.sender, balance);       
+        }
+
         return discountedPrice;    
     }
 
-
-
-    function _sendEther(uint256 amount) internal returns(bool){
-        require(amount > 0, "Value must be greater than 0");
-
-        (bool success, ) = payable(companyABC).call{value: amount}("");
-        require(success, "Purchase failed");    
-        emit EtherTransferred(address(this), companyABC, amount);
-        return success;
+    receive() external payable {
+        emit Received(msg.sender, msg.value);        
     }
 
-    function getBalance() private view returns(uint256){
+    function getBalance() public view returns(uint256){
         return address(this).balance;
     }
-
 
     function getDiscount(uint _price,uint256 _tokenCount) private returns(uint discount){
         if(_tokenCount>=50){
@@ -85,10 +92,6 @@ contract ProductMarket {
             clientTokens[msg.sender]-=10;
         }
         return _price;
-    }
-
-    function getClientPurchases(address _clientAddress) public view returns (Purchase[] memory) {
-        return clientPurchases[_clientAddress];
     }
 
     function getProducts() public view returns (Product[] memory){
